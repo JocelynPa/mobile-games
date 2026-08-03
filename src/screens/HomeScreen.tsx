@@ -102,7 +102,7 @@ export default function HomeScreen({ onPlay }: HomeScreenProps) {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  floaterLayer: { ...StyleSheet.absoluteFill },
+  floaterLayer: { ...StyleSheet.absoluteFillObject },
   floater: {
     position: 'absolute',
     top: -60,

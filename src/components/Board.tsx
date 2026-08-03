@@ -264,6 +264,6 @@ export default function Board({
 
 const styles = StyleSheet.create({
   checkerboard: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
   },
 });

@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   stripesH: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-evenly',
     alignItems: 'center',
   },
@@ -209,7 +209,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   stripesV: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     flexDirection: 'row',
     justifyContent: 'space-evenly',
     alignItems: 'center',
