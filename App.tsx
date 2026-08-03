@@ -8,6 +8,7 @@ import LevelSelectScreen from './src/screens/LevelSelectScreen';
 import GameScreen from './src/screens/GameScreen';
 import { LEVELS } from './src/data/levels';
 import { loadProgress, ProgressMap, saveLevelResult } from './src/data/progress';
+import { initSounds } from './src/audio/sounds';
 
 type Screen = { name: 'home' } | { name: 'levels' } | { name: 'game'; levelId: number };
 
@@ -17,6 +18,7 @@ export default function App() {
 
   useEffect(() => {
     loadProgress().then(setProgress);
+    initSounds();
   }, []);
 
   const handleLevelComplete = useCallback(

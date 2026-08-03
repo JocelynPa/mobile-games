@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LEVELS } from '../data/levels';
 import { isLevelUnlocked, ProgressMap } from '../data/progress';
 import { WORLD_THEMES } from '../theme/colors';
+import { playSound } from '../audio/sounds';
 
 interface LevelSelectScreenProps {
   progress: ProgressMap;
@@ -33,7 +34,14 @@ export default function LevelSelectScreen({
     <LinearGradient colors={WORLD_THEMES[3].background} style={styles.root}>
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
-          <Pressable onPress={onBack} hitSlop={12} style={styles.backButton}>
+          <Pressable
+            onPress={() => {
+              playSound('button');
+              onBack();
+            }}
+            hitSlop={12}
+            style={styles.backButton}
+          >
             <Text style={styles.backText}>‹</Text>
           </Pressable>
           <Text style={styles.headerTitle}>Niveaux</Text>
@@ -48,7 +56,10 @@ export default function LevelSelectScreen({
               <Pressable
                 key={level.id}
                 disabled={!unlocked}
-                onPress={() => onSelectLevel(level.id)}
+                onPress={() => {
+                  playSound('button');
+                  onSelectLevel(level.id);
+                }}
                 style={[styles.card, { backgroundColor: world.panel }, !unlocked && styles.cardLocked]}
               >
                 <Text style={styles.levelNumber}>{level.id}</Text>

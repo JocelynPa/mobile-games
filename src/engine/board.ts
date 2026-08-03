@@ -7,6 +7,7 @@ import {
   GridCandy,
   Position,
   SpecialKind,
+  SpecialSpawn,
   SwapResult,
 } from './types';
 
@@ -382,12 +383,27 @@ function runResolutionLoop(
       const { row, col } = parseKey(k);
       next[row][col] = null;
     }
-    for (const [k, { kind }] of spawns) {
+    const spawnIds = new Map<number, { kind: SpecialKind; color: CandyColor }>();
+    for (const [k, { kind, color }] of spawns) {
       const { row, col } = parseKey(k);
       const existing = next[row][col];
-      if (existing) existing.special = kind;
+      if (existing) {
+        existing.special = kind;
+        spawnIds.set(existing.id, { kind, color });
+      }
     }
+    // gravity can shift the spawn cell itself if cells below it were cleared,
+    // so its final position is only known after refill.
     applyGravityAndRefill(next, rows, cols, numColors);
+
+    const finalFlat = toFlat(next, rows, cols);
+    const spawnedSpecials: SpecialSpawn[] = [];
+    if (spawnIds.size > 0) {
+      for (const c of finalFlat) {
+        const info = spawnIds.get(c.id);
+        if (info) spawnedSpecials.push({ row: c.row, col: c.col, kind: info.kind, color: info.color });
+      }
+    }
 
     const candiesCleared = finalRemoval.size;
     const scoreGained = Math.round(
@@ -397,11 +413,12 @@ function runResolutionLoop(
 
     phases.push({
       removedIds,
-      grid: toFlat(next, rows, cols),
+      grid: finalFlat,
       scoreGained,
       cascadeIndex,
       specialsCreated: spawns.size,
       candiesCleared,
+      spawnedSpecials,
     });
 
     current = next;

@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { runOnJS, useSharedValue } from 'react-native-reanimated';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import {
   areAdjacent,
@@ -11,14 +17,19 @@ import {
   reshuffleBoard,
   toFlat,
 } from '../engine/board';
-import { Grid, GridCandy, Position } from '../engine/types';
+import { Grid, GridCandy, Position, SpecialSpawn } from '../engine/types';
 import { LevelConfig } from '../data/levels';
+import { CANDY_THEME } from '../theme/colors';
+import { playCascadeTone, playSound } from '../audio/sounds';
 import CandyView from './Candy';
+import { Burst, BurstSpec, RingBurst, RingSpec } from './Effects';
 
 const POP_MS = 200;
 const FALL_MS = 260;
 const OPTIMISTIC_MS = 170;
 const SWIPE_THRESHOLD = 16;
+const BIG_CLEAR_THRESHOLD = 8;
+const MAX_BURSTS_PER_PHASE = 24;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -70,24 +81,29 @@ export default function Board({
   const seenIdsRef = useRef<Set<number>>(new Set());
   const lastNewIdsRef = useRef<Set<number>>(new Set());
   const busyRef = useRef(false);
+  const renderCandiesRef = useRef<GridCandy[]>([]);
+  const burstIdRef = useRef(0);
+  const ringIdRef = useRef(0);
 
-  const [renderCandies, setRenderCandies] = useState<GridCandy[]>(() =>
+  const [renderCandies, setRenderCandiesState] = useState<GridCandy[]>(() =>
     toFlat(gridRef.current, rows, cols)
   );
+  renderCandiesRef.current = renderCandies;
+
   const [poppingIds, setPoppingIds] = useState<Set<number>>(new Set());
   const [selected, setSelected] = useState<Position | null>(null);
   const [shakeIds, setShakeIds] = useState<Set<number>>(new Set());
+  const [bursts, setBursts] = useState<BurstSpec[]>([]);
+  const [rings, setRings] = useState<RingSpec[]>([]);
+  const [flashColor, setFlashColor] = useState('#ffffff');
 
-  useEffect(() => {
-    gridRef.current = generateBoard(rows, cols, numColors);
-    seenIdsRef.current = new Set();
-    setRenderCandies(toFlat(gridRef.current, rows, cols));
-    setPoppingIds(new Set());
-    setShakeIds(new Set());
-    setSelected(null);
-    busyRef.current = false;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetKey, rows, cols, numColors]);
+  const punchScale = useSharedValue(1);
+  const flashOpacity = useSharedValue(0);
+
+  function setRenderCandies(list: GridCandy[]) {
+    renderCandiesRef.current = list;
+    setRenderCandiesState(list);
+  }
 
   function updateRenderCandies(list: GridCandy[]) {
     const newIds = new Set<number>();
@@ -97,6 +113,64 @@ export default function Board({
     newIds.forEach((id) => seenIdsRef.current.add(id));
     lastNewIdsRef.current = newIds;
     setRenderCandies(list);
+  }
+
+  useEffect(() => {
+    gridRef.current = generateBoard(rows, cols, numColors);
+    seenIdsRef.current = new Set();
+    setRenderCandies(toFlat(gridRef.current, rows, cols));
+    setPoppingIds(new Set());
+    setShakeIds(new Set());
+    setSelected(null);
+    setBursts([]);
+    setRings([]);
+    busyRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey, rows, cols, numColors]);
+
+  function spawnBursts(removedIds: number[]) {
+    const capped = removedIds.slice(0, MAX_BURSTS_PER_PHASE);
+    const candies = renderCandiesRef.current;
+    const newBursts: BurstSpec[] = [];
+    for (const id of capped) {
+      const c = candies.find((x) => x.id === id);
+      if (!c) continue;
+      newBursts.push({
+        id: burstIdRef.current++,
+        x: c.col * cellSize + cellSize / 2,
+        y: c.row * cellSize + cellSize / 2,
+        color: CANDY_THEME[c.color].glow,
+      });
+    }
+    if (newBursts.length) setBursts((prev) => [...prev, ...newBursts]);
+  }
+
+  function spawnRings(spawned: SpecialSpawn[]) {
+    if (!spawned.length) return;
+    const newRings: RingSpec[] = spawned.map((s) => ({
+      id: ringIdRef.current++,
+      x: s.col * cellSize + cellSize / 2,
+      y: s.row * cellSize + cellSize / 2,
+      size: cellSize * 1.5,
+      color: CANDY_THEME[s.color].glow,
+    }));
+    setRings((prev) => [...prev, ...newRings]);
+  }
+
+  function triggerPunch(color: string) {
+    setFlashColor(color);
+    flashOpacity.value = withSequence(withTiming(0.26, { duration: 70 }), withTiming(0, { duration: 260 }));
+    punchScale.value = withSequence(withTiming(1.035, { duration: 90 }), withTiming(1, { duration: 180 }));
+  }
+
+  function pickPhaseColor(spawned: SpecialSpawn[], removedIds: number[]): string {
+    if (spawned.length > 0) return CANDY_THEME[spawned[0].color].glow;
+    const candies = renderCandiesRef.current;
+    for (const id of removedIds) {
+      const c = candies.find((x) => x.id === id);
+      if (c) return CANDY_THEME[c.color].glow;
+    }
+    return '#ffffff';
   }
 
   async function attemptSwap(a: Position, b: Position) {
@@ -111,14 +185,16 @@ export default function Board({
     const beforeIdA = gridRef.current[a.row][a.col]?.id;
     const beforeIdB = gridRef.current[b.row][b.col]?.id;
 
-    setRenderCandies((prev) => swapVisualPositions(prev, a, b));
+    playSound('swap');
+    setRenderCandies(swapVisualPositions(renderCandiesRef.current, a, b));
     await sleep(OPTIMISTIC_MS);
 
     const result = resolveSwap(gridRef.current, rows, cols, a, b, numColors);
 
     if (!result.valid) {
+      playSound('invalid');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-      setRenderCandies((prev) => swapVisualPositions(prev, a, b));
+      setRenderCandies(swapVisualPositions(renderCandiesRef.current, a, b));
       const ids = new Set<number>();
       if (beforeIdA) ids.add(beforeIdA);
       if (beforeIdB) ids.add(beforeIdB);
@@ -134,11 +210,25 @@ export default function Board({
     onMoveSpent();
 
     for (const phase of result.phases) {
-      setPoppingIds(new Set(phase.removedIds));
-      onScoreGained(phase.scoreGained, phase.cascadeIndex);
+      const isBigClear = phase.candiesCleared >= BIG_CLEAR_THRESHOLD;
+
+      if (phase.specialsCreated > 0) playSound('special');
+      else if (isBigClear) playSound('bomb');
+      else if (phase.cascadeIndex > 0) playCascadeTone(phase.cascadeIndex);
+      else playSound('pop');
+
       if (phase.cascadeIndex > 0) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       }
+      if (isBigClear || phase.specialsCreated > 0) {
+        triggerPunch(pickPhaseColor(phase.spawnedSpecials, phase.removedIds));
+      }
+
+      spawnBursts(phase.removedIds);
+      spawnRings(phase.spawnedSpecials);
+
+      setPoppingIds(new Set(phase.removedIds));
+      onScoreGained(phase.scoreGained, phase.cascadeIndex);
       await sleep(POP_MS);
       setPoppingIds(new Set());
       updateRenderCandies(phase.grid);
@@ -223,40 +313,67 @@ export default function Board({
     [cellSize, rows, cols]
   );
 
+  const punchStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: punchScale.value }],
+  }));
+  const flashStyle = useAnimatedStyle(() => ({
+    opacity: flashOpacity.value,
+  }));
+
   return (
     <GestureDetector gesture={pan}>
       <View style={{ width: size, height: size }}>
-        <View style={styles.checkerboard}>
-          {Array.from({ length: rows }).map((_, r) =>
-            Array.from({ length: cols }).map((__, c) => (
-              <View
-                key={`${r}-${c}`}
-                style={{
-                  position: 'absolute',
-                  left: c * cellSize,
-                  top: r * cellSize,
-                  width: cellSize,
-                  height: cellSize,
-                  backgroundColor:
-                    (r + c) % 2 === 0 ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.03)',
-                  borderRadius: cellSize * 0.22,
-                }}
-              />
-            ))
-          )}
-        </View>
-        {renderCandies.map((candy) => (
-          <CandyView
-            key={candy.id}
-            candy={candy}
-            cellSize={cellSize}
-            popping={poppingIds.has(candy.id)}
-            selected={!!selected && selected.row === candy.row && selected.col === candy.col}
-            shake={shakeIds.has(candy.id)}
-            spawnFromAbove={lastNewIdsRef.current.has(candy.id)}
-            onPress={handleCandyPress}
-          />
-        ))}
+        <Animated.View style={[{ width: size, height: size }, punchStyle]}>
+          <View style={styles.checkerboard}>
+            {Array.from({ length: rows }).map((_, r) =>
+              Array.from({ length: cols }).map((__, c) => (
+                <View
+                  key={`${r}-${c}`}
+                  style={{
+                    position: 'absolute',
+                    left: c * cellSize,
+                    top: r * cellSize,
+                    width: cellSize,
+                    height: cellSize,
+                    backgroundColor:
+                      (r + c) % 2 === 0 ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.03)',
+                    borderRadius: cellSize * 0.22,
+                  }}
+                />
+              ))
+            )}
+          </View>
+          {renderCandies.map((candy) => (
+            <CandyView
+              key={candy.id}
+              candy={candy}
+              cellSize={cellSize}
+              popping={poppingIds.has(candy.id)}
+              selected={!!selected && selected.row === candy.row && selected.col === candy.col}
+              shake={shakeIds.has(candy.id)}
+              spawnFromAbove={lastNewIdsRef.current.has(candy.id)}
+              onPress={handleCandyPress}
+            />
+          ))}
+          {rings.map((ring) => (
+            <RingBurst
+              key={ring.id}
+              {...ring}
+              onDone={() => setRings((prev) => prev.filter((r) => r.id !== ring.id))}
+            />
+          ))}
+          {bursts.map((burst) => (
+            <Burst
+              key={burst.id}
+              {...burst}
+              onDone={() => setBursts((prev) => prev.filter((b) => b.id !== burst.id))}
+            />
+          ))}
+        </Animated.View>
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.flash, { backgroundColor: flashColor }, flashStyle]}
+        />
       </View>
     </GestureDetector>
   );
@@ -265,5 +382,9 @@ export default function Board({
 const styles = StyleSheet.create({
   checkerboard: {
     ...StyleSheet.absoluteFillObject,
+  },
+  flash: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
   },
 });

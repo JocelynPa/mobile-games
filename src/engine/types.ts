@@ -36,6 +36,11 @@ export interface GridCandy extends Candy {
   col: number;
 }
 
+export interface SpecialSpawn extends Position {
+  kind: SpecialKind;
+  color: CandyColor;
+}
+
 export type CascadePhase = {
   /** ids removed/consumed during this phase (for pop animation) */
   removedIds: number[];
@@ -45,6 +50,8 @@ export type CascadePhase = {
   cascadeIndex: number;
   specialsCreated: number;
   candiesCleared: number;
+  /** cells where a striped/wrapped/bomb candy was just created this phase */
+  spawnedSpecials: SpecialSpawn[];
 };
 
 export type SwapResult =
