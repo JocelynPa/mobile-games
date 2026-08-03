@@ -6,6 +6,7 @@ export type GameStatus = 'playing' | 'won' | 'lost';
 export interface ComboPopup {
   id: number;
   text: string;
+  amount: number;
 }
 
 const COMBO_LABELS = ['Joli !', 'Combo x2 !', 'Combo x3 !', 'Combo x4 !', 'INCROYABLE !'];
@@ -24,7 +25,7 @@ export function useGame(level: LevelConfig) {
       comboIdRef.current += 1;
       const id = comboIdRef.current;
       const text = COMBO_LABELS[Math.min(cascadeIndex, COMBO_LABELS.length - 1)];
-      setCombo({ id, text });
+      setCombo({ id, text, amount });
       setTimeout(() => {
         setCombo((c) => (c?.id === id ? null : c));
       }, 900);

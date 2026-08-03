@@ -13,6 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { CANDY_THEME, WORLD_THEMES } from '../theme/colors';
 import { CandyColor } from '../engine/types';
+import { playSound } from '../audio/sounds';
 
 const FLOATERS: { color: CandyColor; left: `${number}%`; size: number; delay: number; duration: number }[] = [
   { color: 'red', left: '8%', size: 34, delay: 0, duration: 4200 },
@@ -86,7 +87,13 @@ export default function HomeScreen({ onPlay }: HomeScreenProps) {
           <Text style={styles.subtitle}>Sucré. Explosif. Addictif.</Text>
         </Animated.View>
         <View style={styles.spacer} />
-        <Pressable style={styles.playButton} onPress={onPlay}>
+        <Pressable
+          style={styles.playButton}
+          onPress={() => {
+            playSound('button');
+            onPlay();
+          }}
+        >
           <LinearGradient
             colors={['#FF9AD5', '#FF4D9D']}
             start={{ x: 0, y: 0 }}
